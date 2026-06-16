@@ -1,0 +1,6 @@
+{
+  "name": "AI Chatbot",
+  "description": "A modern AI chatbot application with chat history, voice input, web search toggle, and a sleek thinking UI.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_LOCAL_OLLAMA_API"]
+}

@@ -9,6 +9,7 @@ import {
   Globe,
   Mic,
   MicOff,
+  Volume2,
   Sparkles,
   Bot,
   User,
@@ -20,6 +21,15 @@ import {
 interface ChatAreaProps {
   onMenuToggle: () => void;
 }
+
+const stripMarkdownForSpeech = (text: string) =>
+  text
+    .replace(/```[\s\S]*?```/g, " code omitted ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/[*_#>-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 export const ChatArea: React.FC<ChatAreaProps> = ({ onMenuToggle }) => {
   const {
@@ -34,9 +44,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onMenuToggle }) => {
   const [input, setInput] = useState("");
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [voiceModeEnabled, setVoiceModeEnabled] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const lastSpokenMessageIdRef = useRef<string | null>(null);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const messages = activeSession ? activeSession.messages : [];
@@ -58,6 +70,56 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onMenuToggle }) => {
     scrollToBottom();
   }, [messages, loading]);
 
+  useEffect(() => {
+    if (!voiceModeEnabled || loading || typeof window === "undefined") {
+      return;
+    }
+
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== "assistant") {
+      return;
+    }
+
+    if (lastMessage.id === "welcome-system") {
+      lastSpokenMessageIdRef.current = lastMessage.id;
+      return;
+    }
+
+    if (lastSpokenMessageIdRef.current === lastMessage.id) {
+      return;
+    }
+
+    const synthesis = window.speechSynthesis;
+    if (!synthesis) {
+      return;
+    }
+
+    synthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(
+      stripMarkdownForSpeech(lastMessage.content),
+    );
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    lastSpokenMessageIdRef.current = lastMessage.id;
+    synthesis.speak(utterance);
+  }, [messages, loading, voiceModeEnabled]);
+
+  useEffect(() => {
+    if (voiceModeEnabled || typeof window === "undefined") {
+      return;
+    }
+
+    window.speechSynthesis?.cancel();
+  }, [voiceModeEnabled]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        window.speechSynthesis?.cancel();
+      }
+    };
+  }, []);
+
   // 2. Track screen scrolls to show/hide "Scroll to Bottom" button
   const handleScroll = () => {
     const container = scrollContainerRef.current;
@@ -69,7 +131,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onMenuToggle }) => {
     setShowScrollBtn(isUp);
   };
 
-  // Convert speech recognition outcomes directly to the input field
+  // In voice mode transcript is sent immediately; otherwise it is appended to the input.
   const handleMicClick = () => {
     if (!speechSupported) {
       setMicError(
@@ -83,9 +145,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onMenuToggle }) => {
       stopListening();
     } else {
       setMicError(null);
+      if (typeof window !== "undefined") {
+        window.speechSynthesis?.cancel();
+      }
       startListening(
         (transcript) => {
-          setInput((prev) => prev + (prev ? " " : "") + transcript);
+          const cleanTranscript = transcript.trim();
+          if (!cleanTranscript) return;
+
+          if (voiceModeEnabled) {
+            setInput("");
+            void sendMessage(cleanTranscript);
+            return;
+          }
+
+          setInput((prev) => prev + (prev ? " " : "") + cleanTranscript);
         },
         () => {
           // Finished handler
@@ -313,7 +387,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onMenuToggle }) => {
             <div className="mb-2 mx-1 p-2 bg-emerald-950/30 border border-emerald-900/30 rounded-lg text-xs text-emerald-300 flex items-center justify-between animate-pulse">
               <span className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                <span>Dictation active... speak cleanly into microphone</span>
+                <span>
+                  {voiceModeEnabled
+                    ? "Voice mode active... speak to send directly"
+                    : "Dictation active... speak cleanly into microphone"}
+                </span>
               </span>
               <button
                 type="button"
@@ -343,8 +421,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ onMenuToggle }) => {
 
               {/* Console Action Bar */}
               <div className="flex items-center justify-between border-t border-zinc-900 bg-[#0f0f12] px-4 py-2.5">
-                {/* Left controls: Optional Web Search Toggle */}
+                {/* Left controls: Voice mode and optional Web Search toggle */}
                 <div className="flex items-center gap-4 select-none">
+                  <div className="flex items-center gap-2 group">
+                    <button
+                      id="voice-mode-toggle"
+                      type="button"
+                      onClick={() => setVoiceModeEnabled((prev) => !prev)}
+                      className={`flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition duration-200 cursor-pointer ${
+                        voiceModeEnabled ? "bg-emerald-500" : "bg-zinc-800"
+                      }`}
+                      title="Toggle Voice Mode"
+                    >
+                      <span
+                        className={`h-4 w-4 rounded-full bg-white shadow-sm transform transition duration-200 ${
+                          voiceModeEnabled ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                    <span className="flex items-center gap-1.5 text-xs text-zinc-450 font-medium group-hover:text-zinc-200 transition-colors">
+                      <Volume2
+                        className={`h-3.5 w-3.5 ${voiceModeEnabled ? "text-emerald-500" : "text-zinc-500"}`}
+                      />
+                      Voice Mode
+                    </span>
+                  </div>
+
                   <div className="flex items-center gap-2 group">
                     <button
                       id="web-search-toggle"

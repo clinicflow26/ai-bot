@@ -9,7 +9,8 @@ export function useSpeechToText() {
   useEffect(() => {
     // Check support for speech recognition
     const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       setIsSupported(true);
@@ -25,7 +26,7 @@ export function useSpeechToText() {
 
   const startListening = (
     onTranscript: (text: string) => void,
-    onFinished: () => void
+    onFinished: () => void,
   ) => {
     if (!isSupported || !recognitionRef.current) {
       setError("Speech recognition is not supported in this browser.");
